@@ -14,96 +14,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+#!/usr/bin/env python
+#
+#
 import webapp2
-from datetime import datetime
+import json
+from models import *
+import datetime
+from google.appengine.api import taskqueue
 from google.appengine.api import search
-from math import radians, sqrt, sin, cos, atan2
-#import MySQLdb
-# Define your production Cloud SQL instance information.
-_INSTANCE_NAME = 'joblocationidentifier:eachjobs'
 
-def add(self):
-  document_id = 'PA6-50'
-  doc_id_1 = "PA6-51"
-  doc_id_2 = "PA6-52"
-  doc_id_3 = "PA6-53"
-  doc_id_4 = "PA6-54"
-  x = "38.7234211"
-  y = "-9.1873166"
-  z = '{lat}'.format(lat=x)
-  z1 = 'lon'.format(lon=y)
-  self.response.write(float(y))
-
-  doclist=[]
-  my_document = search.Document(
-    # Setting the doc_id is optional. If omitted, the search service will create an identifier.
-    doc_id = document_id,
-    fields=[
-          search.GeoField(name='job_location', value=search.GeoPoint(float(x),float(y)))                 
-       ])
-  self.response.write(my_document.field('job_location').value)
-  doclist.extend([my_document])
-  my_document_1 = search.Document(
-    # Setting the doc_id is optional. If omitted, the search service will create an identifier.
-    doc_id  = doc_id_1,
-    fields=[
-          search.GeoField(name='job_location', value=search.GeoPoint(38.7234211,-9.1873166))                 
-       ])
-  doclist.extend([my_document_1])
-  my_document_2 = search.Document(
-    doc_id  = doc_id_2,
-    fields=[
-          search.GeoField(name='job_location', value=search.GeoPoint(38.7260522,-9.150556))                
-       ])
-  doclist.extend([my_document_2])
-  my_document_3  = search.Document(
-    doc_id = doc_id_3,
-    fields=[
-          search.GeoField(name='job_location', value=search.GeoPoint(38.7309904,-9.1497192))                  
-       ])
-  doclist.extend([my_document_3])
-  my_document_4 = search.Document(
-    doc_id  = doc_id_4,
-    fields=[
-          search.GeoField(name='job_location', value=search.GeoPoint(38.7296178,-9.1518006))                
-       ]) 
-  doclist.extend([my_document_4])
-                    
-  try:
-        index = search.Index(name="index_jobs_2")
-        index.put(doclist)
-        #if  index.get(document_id):
-        #  index.put(my_document)
-        #if  index.get(doc_id_1):
-        #  index.put(my_document_1)
-        #if  index.get(doc_id_2):
-        #  index.put(my_document_2)
-        #if  index.get(doc_id_3):
-        #  index.put(my_document_3)
-        #if  index.get(doc_id_4):
-        #  index.put(my_document_4)
-        self.response.write("posted location objects")
-  except search.Error:
-        self.response.write('Put failed')
-
-def retrieve(self):
-  index = search.Index(name="index_jobs_2")
-  query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 10" 
-  try:
-        self.response.write('In local')
-        results = index.search(query_string)
-        self.response.write('In local 2')
-        total_matches = results.number_found
-        print total_matches
-        self.response.write(total_matches)
-        #document;
-        # Iterate over the documents in the results
-        for scored_document in results:
-          # handle results
-          #document = scored_document
-          self.response.write(scored_document.field('job_location').value.latitude)
-  except search.Error:
-        self.response.write('Search failed')
+documents_counter=0
+total_docs_counter=0
+documents_list=[]
+TRUE = 1
+FALSE = 0
+DEBUG = TRUE
+geopoints = []
+JOB_LIMIT_DOCUMENT = 1
 def geocalc(lat1, lon1, lat2, lon2):
     lat1 = radians(lat1)
     lon1 = radians(lon1)
@@ -121,9 +49,238 @@ def geocalc(lat1, lon1, lat2, lon2):
     x = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(dlon)
     c = atan2(y, x)
     return EARTH_R * c
+def date_handler(obj):
+    return obj.isoformat() if hasattr(obj, 'isoformat') else obj
+def person_doc(self,counter, body):
+        request_body = json.loads(self.request.body)
+        lat_val = request_body['lat']
+        latitude = float(str(lat_val))
+        lon_val = request_body['lon']
+        longitude = float(str(lon_val))
+        car_breakdown_area = request_body['car_breakdown_area']
+        safe_parking_area = request_body['safe_parking_area']
+        water_level_area = request_body['water_level_area']
+        # if len(geopoints) == 0:
+        #     poi = latitude,longitude;
+        #     geopoints.extend(poi)
+        # else:
+        #     for eachpoi in geopoints:
+        #         distance = geocalc(latitude,longitude,eachpoi[0],eachpoi[1])
+        #         if distance > 1:
+        #             geopoints.extend(poi)
+        my_document = search.Document(
+            # Setting the doc_id is optional. If omitted, the search service will create an identifier.
+            doc_id = str(counter),
+            fields=[
+                search.TextField(name='supplier', value='person'),
+                search.NumberField(name='wiper_speed', value=-100.0),
+                search.NumberField(name='speed', value=-100.0),
+                search.TextField(name='car_break_down', value=str(car_breakdown_area)),
+                search.TextField(name='car_parked', value=str(safe_parking_area)),
+                search.NumberField(name='water_level_area', value=int(water_level_area)),
+                search.GeoField(name='wlocation', value=search.GeoPoint(latitude,longitude))                 
+                ])
+        documents_list.extend([my_document])
+        self.response.write(len(documents_list))
+
+def query_result(self, index, query_string):
+    try:
+        # val = 2
+        # val_1 = 15.7979
+        # result_string="{'results':["
+        # result_string +="{"
+        # result_string+="'location':{ 'lat': '%s' , 'lon': '%s' }, " % (38.76817681, -9.864823)
+        # #result_string+="'water_level':'%s', " % val
+
+        # result_string+="'water_level':'%s'," % val
+        # result_string+="'car_parked':'%s'," % "yes"
+        # result_string+="'wiper_speed':'%s'," % val_1
+        # result_string +="}"
+        # result_string+="]}"
+
+        results = index.search(query_string)
+        self.response.write('In local 2')
+        total_matches = results.number_found
+        print total_matches
+        self.response.write(total_matches)
+        #document;
+        # Iterate over the documents in the results
+        result_string="{'results':[";
+        counter=0;
+        for scored_document in results:
+          # handle results
+          #document = scored_document
+          if counter > 0:
+            result_string +=","
+          result_string +="{"
+          result_string+="'location':{ 'lat': '%s' , 'lon': '%s' }, " % (scored_document.field('wlocation').value.latitude, scored_document.field('wlocation').value.longitude)
+          result_string+="'water_level':'%s', " % (scored_document.field('water_level_area').value)
+          result_string+="'car_parked':'%s', " % (scored_document.field('car_parked').value)
+          result_string+="'wiper_speed':'%s', " % (scored_document.field('wiper_speed').value)
+          result_string+="'supplier':'%s', " % (scored_document.field('supplier').value)
+          result_string+="'car_break_down':'%s', " % (scored_document.field('car_break_down').value)
+          result_string+="'speed':'%s', " % (scored_document.field('speed').value)
+
+          result_string +="}"
+          counter = counter+1
+
+        result_string="]}"
+        self.response.write(json.dumps(result_string))
+
+        #   self.response.write(scored_document.field('wlocation').value.latitude)
+    except search.Error:
+        self.response.write('Search failed')
+class MainHandler(webapp2.RequestHandler):
+    def get(self):
+        self.response.write('Hello world!')
+class QueryHandler(webapp2.RequestHandler):
+    def get(self):
+        query_type = self.request.get('query_type')
+
+        index = search.Index(name="crowdsourced_mumbai_monsoon")
+        if query_type == "NEAR_BY":
+            latitude = self.request.get('lat')
+            longitude = self.request.get('lon')
+
+            geostring = "geopoint(%s,%s)" % (latitude,longitude)
+            query_string = "distance(wlocation, %s) < 1000" % geostring
+            query = search.Query(query_string = query_string)
+            query_result(self,index, query)
+            #self.response.write('NEAR_BY = %s' % geostring)
+        else:
+            if query_type == "CAR_DATA":
+                query_options = search.QueryOptions(    
+                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
+                        )
+                self.response.write('WATER_LEVEL')
+                self.response.write('Query Handler')
+                query_string = "water_level > 1 AND supplier = car"
+                query = search.Query(query_string = query_string, options = query_options)
+        else:
+            if query_type == "HIGH_FLOODING":
+                query_options = search.QueryOptions(    
+                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
+                        )
+                self.response.write('WATER_LEVEL')
+                self.response.write('Query Handler')
+                for point_of_interest in high_flooding_areas:
+                    latitude = point_of_interest[0]
+                    longitude = point_of_interest[1]
+                    geostring = "geopoint(%s,%s)" % (latitude,longitude)
+                    query_string = "distance(wlocation, %s) < 5000"  % geostring
+                    query = search.Query(query_string = query_string, options = query_options)
+        else:
+            if query_type == "DIVERSION":
+                query_options = search.QueryOptions(    
+                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
+                        )
+                self.response.write('WATER_LEVEL')
+                self.response.write('Query Handler')
+                for point_of_interest in diversion_areas:
+                    latitude = point_of_interest[0]
+                    longitude = point_of_interest[1]
+                    geostring = "geopoint(%s,%s)" % (latitude,longitude)
+                    query_string = "distance(wlocation, %s) < 5000"  % geostring
+                    query = search.Query(query_string = query_string, options = query_options)
+class PersonMonsoonHandler(webapp2.RequestHandler):  
+    def post(self):
+        global documents_counter
+        global total_docs_counter
+        documents_counter+=1    
+        total_docs_counter+=1
+        request_body = self.request.body
+
+      person_doc(self, documents_counter, request_body)
+        if documents_counter >= JOB_LIMIT_DOCUMENT:
+            try:
+                documents_counter = 0
+
+                index = search.Index(name="job_index")
+                index.put(documents_list)
+                if DEBUG == TRUE:
+                    self.response.write("PERSON CAR location objects")
+                    documents_list=[]
+            except search.Error:
+                if DEBUG == TRUE:
+                    self.response.write('Put failed')
+
+class GetMyCarHandler(webapp2.RequestHandler):
+    def get(self):
+        car_key = ndb.Key(CarData, self.request.get('car_id'))
+
+        query = "select * from CarData order by ARoute.date_posted desc limit 10"
+        cardatasets = CarData.query(CarData._key == car_key).order(-CarData.route.date_posted).fetch(10)
+        #self.response.headers['Content-Type'] = 'application/json'
+        for everydata in cardatasets:
+            response_value = "{'speed':%s, 'wiper_speed': %s, 'date': %s, 'water_levels': %s, 'position': %s}" % (json.dumps(everydata.speed), json.dumps(everydata.wiper_speed), json.dumps(date_handler(everydata.route.date_posted)), json.dumps(everydata.water_level), json.dumps(everydata.route.location))
+            self.response.out.write(response_value)
+
+        self.response.write('Hello world!')
+
+def retrieve(self):
+  index = search.Index(name="job_index")
+  query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 5000" 
+  try:
+        self.response.write('In local')
+        results = index.search(query_string)
+        self.response.write('In local 2')
+        total_matches = results.number_found
+        print total_matches
+        self.response.write(total_matches)
+        #document;
+        # Iterate over the documents in the results
+        for scored_document in results:
+          # handle results
+          #document = scored_document
+          self.response.write(scored_document.field('job_location').value.latitude)
+  except search.Error:
+        self.response.write('Search failed')
+def add_job_docments(self):
+    global documents_counter
+    global total_docs_counter
+    documents_counter+=1    
+    total_docs_counter+=1
+    job_doc(self, documents_counter)
+    if documents_counter >= JOB_LIMIT_DOCUMENT:
+        try:
+            documents_counter = 0
+            index = search.Index(name="job_index")
+            index.put(documents_list)
+            if DEBUG == TRUE:
+                self.response.write("CAR DATA location objects")
+                documents_list=[]
+            except search.Error:
+                if DEBUG == TRUE:
+                    self.response.write('Put failed')
+        #query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 10" 
+
+        #index = search.Index(name="index_monsoon")
+def job_doc(self,counter):     
+    latitude = self.request.get('lat')
+    
+    longitude = self.request.get('lon')
+    job_id = self.request.get('job')
+    address = self.request.get('address')
+    description = self.request.get('description')
+    skill = request_body('skill')
+    job_document = search.Document(
+        # Setting the doc_id is optional. If omitted, the search service will create an identifier.
+        doc_id = str(counter),
+        fields=[
+            search.TextField(name='job', value=str(job_id)),
+            search.NumberField(name='speed', value=float(car_speed)),
+            search.TextField(name='address', value=str(address)),
+            search.NumberField(name='wiper_speed', value=float(wiper_speed)),
+            search.TextField(name='description', value=str(description)),
+            search.TextField(name='skill', value=str(skill)),
+            search.GeoField(name='job_location', value=search.GeoPoint(latitude,longitude))                 
+            ])
+    documents_list.extend([job_document])
+    self.response.write(len(documents_list))
 class AddJobHandler(webapp2.RequestHandler):
     def post(self):
         # Handle the post to create a new job entry.
+        add_job_docments(self)
         job_id = self.request.get('job')
         creator = self.request.get('creator')
         address = self.request.get('address')
@@ -148,12 +305,11 @@ class AddJobHandler(webapp2.RequestHandler):
         db.close()
 
         self.redirect("/")
-
 class LocationHandler(webapp2.RequestHandler):
     def get(self):
       retrieve(self)
     def post(self):
-      add(self)
+      add(self, self.request.get('lat'),self.request.get('lon') )
 class MainHandler(webapp2.RequestHandler):
     def get(self):
         self.response.write('In main')
