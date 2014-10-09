@@ -51,37 +51,6 @@ def geocalc(lat1, lon1, lat2, lon2):
     return EARTH_R * c
 def date_handler(obj):
     return obj.isoformat() if hasattr(obj, 'isoformat') else obj
-def person_doc(self,counter, body):
-        request_body = json.loads(self.request.body)
-        lat_val = request_body['lat']
-        latitude = float(str(lat_val))
-        lon_val = request_body['lon']
-        longitude = float(str(lon_val))
-        car_breakdown_area = request_body['car_breakdown_area']
-        safe_parking_area = request_body['safe_parking_area']
-        water_level_area = request_body['water_level_area']
-        # if len(geopoints) == 0:
-        #     poi = latitude,longitude;
-        #     geopoints.extend(poi)
-        # else:
-        #     for eachpoi in geopoints:
-        #         distance = geocalc(latitude,longitude,eachpoi[0],eachpoi[1])
-        #         if distance > 1:
-        #             geopoints.extend(poi)
-        my_document = search.Document(
-            # Setting the doc_id is optional. If omitted, the search service will create an identifier.
-            doc_id = str(counter),
-            fields=[
-                search.TextField(name='supplier', value='person'),
-                search.NumberField(name='wiper_speed', value=-100.0),
-                search.NumberField(name='speed', value=-100.0),
-                search.TextField(name='car_break_down', value=str(car_breakdown_area)),
-                search.TextField(name='car_parked', value=str(safe_parking_area)),
-                search.NumberField(name='water_level_area', value=int(water_level_area)),
-                search.GeoField(name='wlocation', value=search.GeoPoint(latitude,longitude))                 
-                ])
-        documents_list.extend([my_document])
-        self.response.write(len(documents_list))
 
 def query_result(self, index, query_string):
     try:
@@ -113,14 +82,19 @@ def query_result(self, index, query_string):
           if counter > 0:
             result_string +=","
           result_string +="{"
-          result_string+="'location':{ 'lat': '%s' , 'lon': '%s' }, " % (scored_document.field('wlocation').value.latitude, scored_document.field('wlocation').value.longitude)
-          result_string+="'water_level':'%s', " % (scored_document.field('water_level_area').value)
-          result_string+="'car_parked':'%s', " % (scored_document.field('car_parked').value)
-          result_string+="'wiper_speed':'%s', " % (scored_document.field('wiper_speed').value)
-          result_string+="'supplier':'%s', " % (scored_document.field('supplier').value)
-          result_string+="'car_break_down':'%s', " % (scored_document.field('car_break_down').value)
-          result_string+="'speed':'%s', " % (scored_document.field('speed').value)
-
+          if index == "job_index":
+            result_string+="'location':{ 'lat': '%s' , 'lon': '%s' }, " % (scored_document.field('job_location').value.latitude, scored_document.field('job_location').value.longitude)
+            result_string+="'job_id':'%s', " % (scored_document.field('job_id').value)
+            result_string+="'address':'%s', " % (scored_document.field('address').value)
+            result_string+="'skill':'%s', " % (scored_document.field('skill').value)
+            result_string+="'description':'%s', " % (scored_document.field('description').value)
+            result_string+="'job_date':'%s', " % (scored_document.field('job_date').value)
+          else:
+            result_string+="'location':{ 'lat': '%s' , 'lon': '%s' }, " % (scored_document.field('worker_location').value.latitude, scored_document.field('worker_location').value.longitude)
+            result_string+="'worker_id':'%s', " % (scored_document.field('worker_id').value)
+            result_string+="'address':'%s', " % (scored_document.field('address').value)
+            result_string+="'skill':'%s', " % (scored_document.field('skill').value)
+            result_string+="'worker_name':'%s', " % (scored_document.field('description').value)          
           result_string +="}"
           counter = counter+1
 
@@ -130,111 +104,101 @@ def query_result(self, index, query_string):
         #   self.response.write(scored_document.field('wlocation').value.latitude)
     except search.Error:
         self.response.write('Search failed')
-class MainHandler(webapp2.RequestHandler):
-    def get(self):
-        self.response.write('Hello world!')
 class QueryHandler(webapp2.RequestHandler):
     def get(self):
         query_type = self.request.get('query_type')
-
-        index = search.Index(name="crowdsourced_mumbai_monsoon")
-        if query_type == "NEAR_BY":
-            latitude = self.request.get('lat')
-            longitude = self.request.get('lon')
-
-            geostring = "geopoint(%s,%s)" % (latitude,longitude)
-            query_string = "distance(wlocation, %s) < 1000" % geostring
+        latitude = self.request.get('lat')
+        longitude = self.request.get('lon')
+        geostring = "geopoint(%s,%s)" % (latitude,longitude)
+        
+        if query_type == "JOBS":
+            index = search.Index(name="job_index")
+            query_string = "distance(job_location, %s) < 5000" % geostring
+            query = search.Query(query_string = query_string)
+            query_result(self,index, query)         
+        else:
+            index = search.Index(name="worker_index")
+            query_string = "distance(worker_location, %s) < 5000" % geostring
             query = search.Query(query_string = query_string)
             query_result(self,index, query)
             #self.response.write('NEAR_BY = %s' % geostring)
-        else:
-            if query_type == "CAR_DATA":
-                query_options = search.QueryOptions(    
-                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
-                        )
-                self.response.write('WATER_LEVEL')
-                self.response.write('Query Handler')
-                query_string = "water_level > 1 AND supplier = car"
-                query = search.Query(query_string = query_string, options = query_options)
-        else:
-            if query_type == "HIGH_FLOODING":
-                query_options = search.QueryOptions(    
-                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
-                        )
-                self.response.write('WATER_LEVEL')
-                self.response.write('Query Handler')
-                for point_of_interest in high_flooding_areas:
-                    latitude = point_of_interest[0]
-                    longitude = point_of_interest[1]
-                    geostring = "geopoint(%s,%s)" % (latitude,longitude)
-                    query_string = "distance(wlocation, %s) < 5000"  % geostring
-                    query = search.Query(query_string = query_string, options = query_options)
-        else:
-            if query_type == "DIVERSION":
-                query_options = search.QueryOptions(    
-                        returned_fields=['wlocation', 'water_level', 'wiper_speed', 'speed', 'car_break_down','supplier','car_parked'],
-                        )
-                self.response.write('WATER_LEVEL')
-                self.response.write('Query Handler')
-                for point_of_interest in diversion_areas:
-                    latitude = point_of_interest[0]
-                    longitude = point_of_interest[1]
-                    geostring = "geopoint(%s,%s)" % (latitude,longitude)
-                    query_string = "distance(wlocation, %s) < 5000"  % geostring
-                    query = search.Query(query_string = query_string, options = query_options)
-class PersonMonsoonHandler(webapp2.RequestHandler):  
+class CarDataHandler(webapp2.RequestHandler):
     def post(self):
-        global documents_counter
-        global total_docs_counter
-        documents_counter+=1    
-        total_docs_counter+=1
-        request_body = self.request.body
+        routes_list=[]
+        water_level_list=[]
+        car_id = self.request.get('car_id')
+        job_id = self.request.get('job_id')
+        car_speed = self.request.get('speed')
+        start_time = self.request.get('start_time')
+        stop_time = self.request.get('stop_time')
+        start_time_val = float(long(start_time))
+        stop_time_val = float(long(stop_time))
+        route = self.request.get('route')
+        json_route = json.loads(route)
+        routes = json_route['routes']
+        for each_route in routes:
+            position = each_route['position']
+            #lon = each_route['lon']
+            #position = ndb.GeoPt(float(lat), float(lon))
+            routes_list.extend([position])
 
-      person_doc(self, documents_counter, request_body)
-        if documents_counter >= JOB_LIMIT_DOCUMENT:
-            try:
-                documents_counter = 0
+        aroute = ARoute(id = job_id, job_id  = job_id, speed = car_speed, location = routes_list, 
+          start_time = datetime.datetime.fromtimestamp(start_time_val),
+          stop_time = datetime.datetime.fromtimestamp(stop_time_val),
+          )
+        aroute.put()
+        
+        car_data_trip = CarData(id = car_id, route = aroute)
+        car_data_trip.put()
+        #car_key = ndb.Key(CarData, car_id)
+        #car = car_key.get()
 
-                index = search.Index(name="job_index")
-                index.put(documents_list)
-                if DEBUG == TRUE:
-                    self.response.write("PERSON CAR location objects")
-                    documents_list=[]
-            except search.Error:
-                if DEBUG == TRUE:
-                    self.response.write('Put failed')
-
+        #car_vals = car.fetch()
+        #json.dumps()
+        # for eachcar in car_vals:
+        #   val_dict = eachcar.route.to_dict(exclude=[start_time,stop_time])
+        #   self.response.write(json.dumps(val_dict))
 class GetMyCarHandler(webapp2.RequestHandler):
     def get(self):
         car_key = ndb.Key(CarData, self.request.get('car_id'))
+        #date_requested = self.request.get('date')
 
-        query = "select * from CarData order by ARoute.date_posted desc limit 10"
-        cardatasets = CarData.query(CarData._key == car_key).order(-CarData.route.date_posted).fetch(10)
-        #self.response.headers['Content-Type'] = 'application/json'
-        for everydata in cardatasets:
-            response_value = "{'speed':%s, 'wiper_speed': %s, 'date': %s, 'water_levels': %s, 'position': %s}" % (json.dumps(everydata.speed), json.dumps(everydata.wiper_speed), json.dumps(date_handler(everydata.route.date_posted)), json.dumps(everydata.water_level), json.dumps(everydata.route.location))
-            self.response.out.write(response_value)
+        query = "select * from CarData order by AJob.date desc limit 10"
+        worker_key = ndb.Key(AWorker, self.request.get('car_id'))
 
-        self.response.write('Hello world!')
+        worker = worker_key.get()
+        result_string="{'worker_name':'%s', 'jobs':[" % worker.worker_name
+        counter=0
 
-def retrieve(self):
-  index = search.Index(name="job_index")
-  query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 5000" 
-  try:
-        self.response.write('In local')
-        results = index.search(query_string)
-        self.response.write('In local 2')
-        total_matches = results.number_found
-        print total_matches
-        self.response.write(total_matches)
-        #document;
-        # Iterate over the documents in the results
-        for scored_document in results:
-          # handle results
-          #document = scored_document
-          self.response.write(scored_document.field('job_location').value.latitude)
-  except search.Error:
-        self.response.write('Search failed')
+        for each_job in worker.list_jobs:
+          cardatasets_key = ndb.Key(ARoute, each_job.job_id)
+          everydata = cardatasets_key.get()
+          counter_locations = 0
+          if counter > 0:
+            result_string +=","
+          #self.response.headers['Content-Type'] = 'application/json'
+          #result_string+="'jobs':[" % (each_job.job_id)
+
+          result_string+="{'job_id':'%s', " % (each_job.job_id)
+
+          
+          result_string+="'locations':["
+          for everyloc in everydata.location:
+            if counter_locations > 0:
+              result_string +=","
+            result_string+="{'location': '%s'}" % everyloc
+            counter_locations = counter_locations+1
+          result_string+="],"
+          result_string+="'speed':'%s', " % (everydata.speed)
+          result_string+="'start_time':'%s', " % (date_handler(everydata.start_time))
+          result_string+="'stop_time':'%s'" % (date_handler(everydata.stop_time))
+
+          result_string +="}"
+          counter = counter+1
+
+        result_string+="]}"
+        self.response.headers.set_status(200)
+        self.response.write(json.dumps(result_string))
 def add_job_docments(self):
     global documents_counter
     global total_docs_counter
@@ -246,65 +210,114 @@ def add_job_docments(self):
             documents_counter = 0
             index = search.Index(name="job_index")
             index.put(documents_list)
-            if DEBUG == TRUE:
+            documents_list=[] 
                 self.response.write("CAR DATA location objects")
-                documents_list=[]
-            except search.Error:
-                if DEBUG == TRUE:
-                    self.response.write('Put failed')
-        #query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 10" 
-
-        #index = search.Index(name="index_monsoon")
+                self.response.headers.set_status(200)             
+                #query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 10" 
+        except:
+                    #self.response.set_status(500)
+                    self.response.write('Put Job failed')
 def job_doc(self,counter):     
     latitude = self.request.get('lat')
     
     longitude = self.request.get('lon')
-    job_id = self.request.get('job')
+    job_id = self.request.get('job_id')
     address = self.request.get('address')
     description = self.request.get('description')
-    skill = request_body('skill')
+    skill = self.request.get('skill')
+    job_date = self.request.get('job_date')
     job_document = search.Document(
         # Setting the doc_id is optional. If omitted, the search service will create an identifier.
         doc_id = str(counter),
         fields=[
-            search.TextField(name='job', value=str(job_id)),
-            search.NumberField(name='speed', value=float(car_speed)),
+            search.TextField(name='job_id', value=str(job_id)),
             search.TextField(name='address', value=str(address)),
-            search.NumberField(name='wiper_speed', value=float(wiper_speed)),
             search.TextField(name='description', value=str(description)),
             search.TextField(name='skill', value=str(skill)),
-            search.GeoField(name='job_location', value=search.GeoPoint(latitude,longitude))                 
+            search.DateField(name='job_date', value=datetime.datetime.fromtimestamp(float(long(str(job_date))))),
+            search.GeoField(name='job_location', value=search.GeoPoint(float(latitude),float(longitude)))                
             ])
     documents_list.extend([job_document])
+    job = AJob(id = job_id, job_id = job_id, assigned = False, address = address,
+      description = description, skill = skill, job_date = datetime.datetime.fromtimestamp(float(long(str(job_date)))), date_posted = datetime.datetime.today())
+    job.put()
     self.response.write(len(documents_list))
+class AssignJobHandler(webapp2.RequestHandler):
+  @ndb.transactional(xg=True)
+  def post(self):
+    job_id = self.request.get('job_id')
+    worker_id = self.request.get('worker_id')
+    job_key = ndb.Key(AJob, job_id)
+        #date_requested = self.request.get('date')
+    thejob = job_key.get()
+    self.response.write(thejob.assigned)
+    if not thejob.assigned:
+      thejob.assigned = True
+      thejob.put()
+
+      worker_key = ndb.Key(AWorker, worker_id)
+      theworker = worker_key.get()
+      
+      theworker.list_jobs.extend([thejob])
+      theworker.put()
+
+    
+      for everyjob in theworker.list_jobs:
+        self.response.write(everyjob.job_id)
+
 class AddJobHandler(webapp2.RequestHandler):
     def post(self):
         # Handle the post to create a new job entry.
         add_job_docments(self)
-        job_id = self.request.get('job')
-        creator = self.request.get('creator')
-        address = self.request.get('address')
-        lat = self.request.get('lat')
-        lon = self.request.get('lon')
-        description = self.request.get('description')
-        skill = self.request.get('skill')
-
-        if (os.getenv('SERVER_SOFTWARE') and
-            os.getenv('SERVER_SOFTWARE').startswith('Google App Engine/')):
-            db = MySQLdb.connect(unix_socket='/cloudsql/' + _INSTANCE_NAME, db='joblist', user='root')
-        else:
-            db = MySQLdb.connect(host='127.0.0.1', port=3306, db='joblist', user='root')
-            # Alternatively, connect to a Google Cloud SQL instance using:
-            # db = MySQLdb.connect(host='ip-address-of-google-cloud-sql-instance', port=3306, db='guestbook', user='root')
-
-        cursor = db.cursor()
-        # Note that the only format string supported is %s
-        cursor.execute('INSERT INTO entries (job, creator, address, lat, lon, decription, skill) VALUES (%s, %s, %s, 10.3f, 10.3f, %s, %s)'
-          , (job_id, creator, address, lat, lon, description, skill))
-        db.commit()
-        db.close()
-
         self.redirect("/")
+def add_worker_docments(self):
+    global documents_counter
+    global total_docs_counter
+    documents_counter+=1    
+    total_docs_counter+=1
+    worker_doc(self, documents_counter)
+    if documents_counter >= JOB_LIMIT_DOCUMENT:
+        try:
+            documents_counter = 0
+            index = search.Index(name="worker_index")
+            index.put(documents_list)
+            documents_list=[]
+            if DEBUG == TRUE:
+                self.response.write("WORKER objects")                   
+        except:
+          if DEBUG == TRUE:
+                self.response.write('Put Worker failed')
+        #query_string = "distance(job_location, geopoint(38.7234211,-9.1873166)) < 10" 
+
+        #index = search.Index(name="index_monsoon")
+def worker_doc(self,counter):     
+    latitude = self.request.get('lat')
+    
+    longitude = self.request.get('lon')
+    worker_id = self.request.get('worker_id')
+    address = self.request.get('address')
+    skill = self.request.get('skill')
+    name = self.request.get('name')
+    job_document = search.Document(
+        # Setting the doc_id is optional. If omitted, the search service will create an identifier.
+        doc_id = str(counter),
+        fields=[
+            search.TextField(name='worker_id', value=str(worker_id)),
+            search.TextField(name='worker_name', value=str(name)),
+            search.TextField(name='address', value=str(address)),     
+            search.TextField(name='skill', value=str(skill)),
+            search.GeoField(name='home_location', value=search.GeoPoint(float(latitude),float(longitude)))                
+            ])
+    documents_list.extend([job_document])
+    worker = AWorker(id = worker_id, worker_id = worker_id, worker_name = name,address = address, skill = skill, list_jobs=[])
+    worker.put()
+    self.response.write(len(documents_list))
+class AddWorkerHandler(webapp2.RequestHandler):
+    def post(self):
+        # Handle the post to create a new job entry.
+        add_worker_docments(self)
+        self.redirect("/")
+
 class LocationHandler(webapp2.RequestHandler):
     def get(self):
       retrieve(self)
@@ -323,7 +336,11 @@ class DistanceHandler(webapp2.RequestHandler):
 
 app = webapp2.WSGIApplication([
     ('/', MainHandler),
-    ('/local', LocationHandler),
-    ('/distance', DistanceHandler)
+    ('/nearby', QueryHandler),
+    ('/addcardata', CarDataHandler),
+    ('/addworkerdata', AddWorkerHandler),
+    ('/addjobdata', AddJobHandler),
+    ('/assignjob', AssignJobHandler),
+    ('/getcardata', GetMyCarHandler)
 
 ], debug=True)
